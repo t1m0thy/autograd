@@ -12,28 +12,16 @@ def grad(fun, argnum=0):
         tape = CalculationTape(top_tape(args))
         start_node = Node(args[argnum], tape)
         args = args[:argnum] + (start_node,) + args[argnum+1:]
-        end_node = fun(*args)
-
-        if callable(end_node):
-            return partial(inner_fun, tape, start_node, args, end_node)
-
-        if not tape.hasmember(end_node):
-            return start_node.sum_outgrads()
-        if not isfloat(end_node):
-            raise TypeError("Can only take gradient of scalar-valued functions")
-        else:
-            end_node.outgrads.append(1.0)
-            for node in tape[::-1]:
-                node.send_upstream()
-            return start_node.sum_outgrads()
+        
+        return calc_grad(tape, start_node, args, fun, *args)
 
     return gradfun
 
-def inner_fun(tape, start_node, args, end_node, *inner_args):
-    end_node = end_node(*inner_args)
+def calc_grad(tape, start_node, args, fun, *inner_args):
+    end_node = fun(*inner_args)
     if callable(end_node):
-        return partial(inner_fun, tape, start_node, args, end_node)
-        
+        return partial(calc_grad, tape, start_node, args, end_node)
+
     if not tape.hasmember(end_node):
         return start_node.sum_outgrads()
     if not isfloat(end_node):
