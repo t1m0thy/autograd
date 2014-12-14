@@ -13,6 +13,10 @@ def grad(fun, argnum=0):
         start_node = Node(args[argnum], tape)
         args = args[:argnum] + (start_node,) + args[argnum+1:]
         end_node = fun(*args)
+
+        if callable(end_node):
+            return partial(inner_fun, tape, start_node, args, end_node)
+
         if not tape.hasmember(end_node):
             return start_node.sum_outgrads()
         if not isfloat(end_node):
@@ -24,6 +28,21 @@ def grad(fun, argnum=0):
             return start_node.sum_outgrads()
 
     return gradfun
+
+def inner_fun(tape, start_node, args, end_node, *inner_args):
+    end_node = end_node(*inner_args)
+    if callable(end_node):
+        return partial(inner_fun, tape, start_node, args, end_node)
+        
+    if not tape.hasmember(end_node):
+        return start_node.sum_outgrads()
+    if not isfloat(end_node):
+        raise TypeError("Can only take gradient of scalar-valued functions")
+    else:
+        end_node.outgrads.append(1.0)
+        for node in tape[::-1]:
+            node.send_upstream()
+        return start_node.sum_outgrads()
 
 def kyapply(fun, *args, **kwargs):
     tape = top_tape(args)
@@ -108,6 +127,15 @@ class Node(object):
     def __lt__(self, other):    return getval(self) < getval(other)
     def __gt__(self, other):    return getval(self) > getval(other) 
 
+    def dot(self, other):
+        return k(np.dot, self, other)
+
+    def sum(self, axis=None):
+        return k(np.sum, self, axis)
+
+    def mean(self, axis=None):
+        return k(np.mean, self, axis)
+
 # ----- Helper functions -----
 
 def getval(x)   : return getval(x.value) if isinstance(x, Node) else x
@@ -176,6 +204,16 @@ def grad_np_sum(g, x, axis=None, keepdims=False):
     return k(np.repeat, g, x.shape[axis], axis)
 gradfuns[np.sum] = [grad_np_sum]
 
+def grad_np_mean(g, x, axis=None, keepdims=False):
+    if not isarray(x):
+        return g
+    if axis is None:
+        return k(np.full, x.shape, g) / x.shape
+    elif not keepdims:
+        g = k(np.expand_dims, g, axis)
+    return k(np.repeat, g, x.shape[axis], axis) / x.shape[axis]
+gradfuns[np.mean] = [grad_np_mean]
+
 def grad_np_max(g, x):
     idxs = np.argmax(getval(x))
     return k(untake, g, np.unravel_index(idxs, x.shape))
@@ -235,3 +273,7 @@ def undo_broadcast(fun, argnum):
 broadcasting_ops = [op.add, op.mul, op.sub, op.div, op.pow]
 for fun, argnum in it.product(broadcasting_ops, [0, 1]):
     gradfuns[fun][argnum] = undo_broadcast(gradfuns[fun][argnum], argnum)
+
+def create_module(func, *grads):
+    gradfuns[func] = [partial(k, g) for g in grads]
+    return partial(k, func)
