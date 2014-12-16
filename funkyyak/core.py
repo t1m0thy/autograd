@@ -81,7 +81,7 @@ def top_tape(args):
     return max(tapes, key=attrgetter('priority')) if tapes else None
 
 class Node(object):
-    __slots__ = ['value', 'tape', 'parent_ops', 'args', 'kwargs', 'outgrads', 'fun', 'cfun']
+    __slots__ = ['value', 'tape', 'parent_ops', 'args', 'kwargs', 'outgrads', 'fun']
     def __init__(self, value, tape, parent_ops=[], args=(), kwargs={}, fun=None):
         if not isinstance(value, (Node, float, np.ndarray, dict, Setter)):
             raise TypeError("Can't differentiate wrt {0}".format(type(value)))
