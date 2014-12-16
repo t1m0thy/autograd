@@ -3,7 +3,7 @@ import numpy as np
 import itertools as it
 from functools import partial
 from operator import attrgetter
-from collections import namedtuple
+from collections import namedtuple, Iterable
 
 # ----- Autodiff logic -----
 
@@ -19,7 +19,9 @@ def grad(fun, argnum=0):
 
 def calc_grad(tape, start_node, args, fun, *inner_args):
     end_node = fun(*inner_args)
-    if callable(end_node):
+    if isinstance(end_node, Iterable):
+        return tuple([partial(calc_grad, tape, start_node, args, en) for en in end_node])
+    elif callable(end_node):
         return partial(calc_grad, tape, start_node, args, end_node)
 
     if not tape.hasmember(end_node):
@@ -126,10 +128,10 @@ class Node(object):
 
 # ----- Helper functions -----
 
-def getval(x)   : return getval(x.value) if isinstance(x, Node) else x
-def isarray(x)  : return isinstance(getval(x), np.ndarray)
-def isfloat(x)  : return isinstance(getval(x), float)
-def issetter(x) : return isinstance(getval(x), Setter)
+def getval(x)    : return getval(x.value) if isinstance(x, Node) else x
+def isarray(x)   : return isinstance(getval(x), np.ndarray)
+def isfloat(x)   : return isinstance(getval(x), float)
+def issetter(x)  : return isinstance(getval(x), Setter)
 
 def zeros_like(x):
     if isinstance(x, float):
@@ -172,6 +174,7 @@ gradfuns[np.expand_dims] = [lambda g, x, axis : k(np.squeeze, g, axis)]
 gradfuns[np.squeeze]     = [lambda g, x, axis : k(np.repeat,  g, x.shape[axis], axis)]
 gradfuns[np.repeat]      = [lambda g, x, shape, axis : k(np.sum, g, axis, keepdims=True)]
 gradfuns[np.transpose]   = [lambda g, x : k(np.transpose, g)]
+gradfuns[np.add] = [lambda g, x, y: g + y,  lambda g, x, y: g + x]
 gradfuns[op.neg] = [lambda g, x : - g]
 gradfuns[op.add] = [lambda g, x, y : g,     lambda g, x, y : g]
 gradfuns[op.mul] = [lambda g, x, y : y * g, lambda g, x, y : x * g]
