@@ -52,9 +52,7 @@ def calc_grad(start_node, args, fun, *inner_args):
     else:
         end_node.outgrads.append(1.0)
         for node in tape[::-1]:
-            print node.outgrads
             node.send_upstream()
-            print node.outgrads
         return start_node.sum_outgrads()
 
 def kyapply(fun, *args, **kwargs):
