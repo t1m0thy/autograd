@@ -1,9 +1,12 @@
 import operator as op
 import numpy as np
 import itertools as it
+from memoized import memoized
 from functools import partial
 from operator import attrgetter
 from collections import namedtuple, Iterable
+
+myfuns = {}
 
 # ----- Autodiff logic -----
 
@@ -13,16 +16,34 @@ def grad(fun, argnum=0):
         start_node = Node(args[argnum], tape)
         args = args[:argnum] + (start_node,) + args[argnum+1:]
         
-        return calc_grad(tape, start_node, args, fun, *args)
+        return calc_grad(start_node, args, fun, *args)
 
     return gradfun
 
-def calc_grad(tape, start_node, args, fun, *inner_args):
+def calc_grad(start_node, args, fun, *inner_args):
+    init_tape = set(start_node.tape)
     end_node = fun(*inner_args)
+    new_tape = set(start_node.tape)
+    diff_tape = new_tape.difference(init_tape)
+    diff_ids = tuple([id(t) for t in diff_tape])
+    if myfuns.has_key(id(fun)):
+        for node_id in myfuns[id(fun)]:
+            for node in start_node.tape:
+                if id(node) == node_id:
+                    start_node.tape.remove(node)
+                    break
+
+    myfuns[id(fun)] = diff_ids
+
+    for node in start_node.tape:
+        node.outgrads = []
+
     if isinstance(end_node, Iterable):
-        return tuple([partial(calc_grad, tape, start_node, args, en) for en in end_node])
+        return tuple([partial(calc_grad, start_node, args, en) for en in end_node])
     elif callable(end_node):
-        return partial(calc_grad, tape, start_node, args, end_node)
+        return partial(calc_grad, start_node, args, end_node)
+
+    tape = start_node.tape
 
     if not tape.hasmember(end_node):
         return start_node.sum_outgrads()
@@ -31,7 +52,9 @@ def calc_grad(tape, start_node, args, fun, *inner_args):
     else:
         end_node.outgrads.append(1.0)
         for node in tape[::-1]:
+            print node.outgrads
             node.send_upstream()
+            print node.outgrads
         return start_node.sum_outgrads()
 
 def kyapply(fun, *args, **kwargs):
@@ -60,7 +83,7 @@ def top_tape(args):
     return max(tapes, key=attrgetter('priority')) if tapes else None
 
 class Node(object):
-    __slots__ = ['value', 'tape', 'parent_ops', 'args', 'kwargs', 'outgrads', 'fun']
+    __slots__ = ['value', 'tape', 'parent_ops', 'args', 'kwargs', 'outgrads', 'fun', 'cfun']
     def __init__(self, value, tape, parent_ops=[], args=(), kwargs={}, fun=None):
         if not isinstance(value, (Node, float, np.ndarray, dict, Setter)):
             raise TypeError("Can't differentiate wrt {0}".format(type(value)))
