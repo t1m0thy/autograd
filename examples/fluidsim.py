@@ -7,86 +7,95 @@ import matplotlib.pyplot as plt
 
 rows = 100
 cols = 100
-dt = 1.1
-num_timesteps = 250
-diff = 0.0
-num_solver_iters = 10
+dt = 3.1
+num_timesteps = 50
+num_solver_iters = 5
 
-def plot_fluid(ax, d):
+def plot_matrix(ax, mat):
     plt.cla()
-    ax.matshow(d)
+    ax.matshow(mat)
     plt.draw()
     plt.pause(0.001)
 
-def diffuse(x):
-    """Stably diffuse by applying a few iterations of Gauss-Seidel."""
-    y = x.copy()
-    for k in xrange(num_solver_iters):
-        y = (x + diff*dt*(np.roll(y, 1, axis=0) + np.roll(y, -1, axis=0)
-                       + np.roll(y, 1, axis=1) + np.roll(y, -1, axis=1)))/(1 + diff*dt*4.0)
-    return y
-
-def project(u, v):
+def project(vx, vy):
     """Project the velocity field to be mass-conserving,
        again using a few iterations of Gauss-Seidel."""
     p = np.zeros((rows, cols))
     h = 1.0/(max(rows,cols));
-    div = -0.5 * h * (np.roll(u, -1, axis=0) - np.roll(u, 1, axis=0)
-                    + np.roll(v, -1, axis=1) - np.roll(v, 1, axis=1))
+    div = -0.5 * h * (np.roll(vx, -1, axis=0) - np.roll(vx, 1, axis=0)
+                    + np.roll(vy, -1, axis=1) - np.roll(vy, 1, axis=1))
 
     for k in xrange(num_solver_iters):
         p = (div + np.roll(p, 1, axis=0) + np.roll(p, -1, axis=0)
                  + np.roll(p, 1, axis=1) + np.roll(p, -1, axis=1))/4.0
 
-    u -= 0.5*(np.roll(p, -1, axis=0) - np.roll(p, 1, axis=0))/h;
-    v -= 0.5*(np.roll(p, -1, axis=1) - np.roll(p, 1, axis=1))/h;
-    return u, v
+    vx -= 0.5*(np.roll(p, -1, axis=0) - np.roll(p, 1, axis=0))/h;
+    vy -= 0.5*(np.roll(p, -1, axis=1) - np.roll(p, 1, axis=1))/h;
+    return vx, vy
 
-def advect(f, u, v):
-    """Move field f according to x and y gradients (u and v)
+def advect(f, vx, vy):
+    """Move field f according to x and y velocities (u and v)
        using an implicit Euler integrator."""
-    cell_ys, cell_xs = np.mgrid[0:rows, 0:cols]
-    center_xs = (cell_ys - dt * u).ravel()
-    center_ys = (cell_xs - dt * v).ravel()
+    cell_xs, cell_ys = np.mgrid[0:rows, 0:cols]
+    center_xs = (cell_xs - dt * vx).ravel()
+    center_ys = (cell_ys - dt * vy).ravel()
 
     # Compute indices of source cells.
-    i0 = np.floor(center_xs).astype(np.int)
-    j0 = np.floor(center_ys).astype(np.int)
-    s1 = center_xs - i0           # Relative weight of between two cells.
-    t1 = center_ys - j0
-    i0 = np.mod(i0,     rows)     # Wrap around edges of simulation.
-    i1 = np.mod(i0 + 1, rows)
-    j0 = np.mod(j0,     cols)
-    j1 = np.mod(j0 + 1, cols)
+    left_ix = np.floor(center_xs).astype(np.int)
+    top_ix  = np.floor(center_ys).astype(np.int)
+    rw = center_xs - left_ix              # Relative weight of right-hand cells.
+    bw = center_ys - top_ix               # Relative weight of bottom cells.
+    left_ix  = np.mod(left_ix,     rows)  # Wrap around edges of simulation.
+    right_ix = np.mod(left_ix + 1, rows)
+    top_ix   = np.mod(top_ix,      cols)
+    bot_ix   = np.mod(top_ix + 1,  cols)
 
     # A linearly-weighted sum of the 4 surrounding cells.
-    flat_f = (1 - s1) * ((1 - t1)*f[i0, j0] + t1*f[i0, j1]) \
-           +       s1 * ((1 - t1)*f[i1, j0] + t1*f[i1, j1])
+    flat_f = (1 - rw) * ((1 - bw)*f[left_ix,  top_ix] + bw*f[left_ix,  bot_ix]) \
+                 + rw * ((1 - bw)*f[right_ix, top_ix] + bw*f[right_ix, bot_ix])
     return np.reshape(flat_f, (rows, cols))
+
+def simulate(vx, vy, smoke, num_time_steps, ax=None):
+    """Simulate a fluid for a number of time steps."""
+    for t in xrange(num_time_steps):
+        vx_updated = advect(vx, vx, vy)
+        vy_updated = advect(vy, vx, vy)
+        vx, vy = project(vx_updated, vy_updated)
+        smoke = advect(smoke, vx, vy)
+        if ax: plot_matrix(ax, smoke)
+    return smoke
+
+def target_match(smoke):
+    """Compute distance from target image."""
+    target = np.zeros((rows, cols))
+    target[30:60, 30:60] = 1.0
+    return np.sum(target * smoke)
+
+def objective(init_vx_and_vy, init_smoke, num_time_steps):
+    init_vx = init_vx_and_vy[0]
+    init_vy = init_vx_and_vy[1]
+    final_smoke = simulate(init_vx, init_vy, init_smoke, num_time_steps)
+    return target_match(final_smoke)
 
 if __name__ == '__main__':
 
-    np.random.seed(1)
-    u = np.random.randn(rows, cols)
-    v = np.random.randn(rows, cols)
-    #u = np.ones((rows, cols)) * -0.01
-    #v = np.ones((rows, cols)) * -0.01
-    #u[15:25, 15:25] = 10.1
-    #d = np.random.rand(rows, cols)
-    d = np.zeros((rows, cols))
-    d[10:20:, :] = 1.0
+    #init_dx_and_dy = np.zeros((2, rows, cols))
+    init_dx = np.random.randn(rows, cols)
+    init_dy = np.random.randn(rows, cols)
+    init_smoke = np.zeros((rows, cols))
+    init_smoke[10:20:, :] = 1.0
+    init_smoke[50:60:, :] = 1.0
 
     fig = plt.figure(figsize=(12,10))
     ax = fig.add_axes([0., 0., 1., 1.], frameon=False)
 
-    for t in xrange(num_timesteps):
-        u = diffuse(u)
-        v = diffuse(v)
-        u, v = project(u, v)
-        u2 = advect(u, u, v)
-        v2 = advect(v, u, v)
-        u, v = u2, v2
-        u, v = project(u, v)
-        d = advect(d, u, v)
-        plot_fluid(ax, d)
+    simulate(init_dx, init_dy, init_smoke, num_timesteps, ax)
+
+    #grad_obj = grad(objective)
+    #g = grad_obj(init_dx_and_dy, init_smoke, num_timesteps)
+    #plot_matrix(g[0])
+
+
+
+
 
