@@ -5,25 +5,25 @@ import matplotlib.pyplot as plt
 
 # Based on http://www.intpowertechcorp.com/GDC03.pdf
 
-rows = 30
-cols = 31
+rows = 100
+cols = 100
 dt = 1.1
-num_timesteps = 24
-diff = 0.01
-num_solver_iters = 5
+num_timesteps = 250
+diff = 0.0
+num_solver_iters = 10
 
-def plot_fluid(ax, vx, vy):
-    ax.clear()
-    ax.matshow(np.abs(vx) +np.abs(vy))
+def plot_fluid(ax, d):
+    plt.cla()
+    ax.matshow(d)
     plt.draw()
-    plt.pause(0.05)
+    plt.pause(0.001)
 
 def diffuse(x):
     """Stably diffuse by applying a few iterations of Gauss-Seidel."""
     y = x.copy()
     for k in xrange(num_solver_iters):
-        y = x + diff*dt*(np.roll(y, 1, axis=0) + np.roll(y, -1, axis=0)
-                       + np.roll(y, 1, axis=1) + np.roll(y, -1, axis=1))/(1 + diff*dt*4.0)
+        y = (x + diff*dt*(np.roll(y, 1, axis=0) + np.roll(y, -1, axis=0)
+                       + np.roll(y, 1, axis=1) + np.roll(y, -1, axis=1)))/(1 + diff*dt*4.0)
     return y
 
 def project(u, v):
@@ -50,10 +50,10 @@ def advect(f, u, v):
     center_ys = (cell_xs - dt * v).ravel()
 
     # Compute indices of source cells.
-    i0 = np.floor(center_xs).astype(np.int);
-    j0 = np.floor(center_ys).astype(np.int);
-    s1 = center_xs - i0;          # Relative weight of between two cells.
-    t1 = center_ys - j0;
+    i0 = np.floor(center_xs).astype(np.int)
+    j0 = np.floor(center_ys).astype(np.int)
+    s1 = center_xs - i0           # Relative weight of between two cells.
+    t1 = center_ys - j0
     i0 = np.mod(i0,     rows)     # Wrap around edges of simulation.
     i1 = np.mod(i0 + 1, rows)
     j0 = np.mod(j0,     cols)
@@ -67,11 +67,14 @@ def advect(f, u, v):
 if __name__ == '__main__':
 
     np.random.seed(1)
-    #u = np.random.randn(rows, cols)
-    #v = np.random.randn(rows, cols)
-    u = np.ones((rows, cols)) * -0.01
-    v = np.ones((rows, cols)) * -0.01
-    u[10:20, 10:20] = 10.1
+    u = np.random.randn(rows, cols)
+    v = np.random.randn(rows, cols)
+    #u = np.ones((rows, cols)) * -0.01
+    #v = np.ones((rows, cols)) * -0.01
+    #u[15:25, 15:25] = 10.1
+    #d = np.random.rand(rows, cols)
+    d = np.zeros((rows, cols))
+    d[10:20:, :] = 1.0
 
     fig = plt.figure(figsize=(12,10))
     ax = fig.add_axes([0., 0., 1., 1.], frameon=False)
@@ -84,5 +87,6 @@ if __name__ == '__main__':
         v2 = advect(v, u, v)
         u, v = u2, v2
         u, v = project(u, v)
-        plot_fluid(ax, u, v)
+        d = advect(d, u, v)
+        plot_fluid(ax, d)
 
