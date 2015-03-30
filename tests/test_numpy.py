@@ -205,8 +205,8 @@ def test_prod_3():
     check_grads(d_fun, mat)
 
 def test_prod_4():
-    def fun(x): return np.prod(x)
-    d_fun = lambda x : grad(fun)(x)
+    def fun(x): return to_scalar(np.prod(x))
+    d_fun = lambda x : to_scalar(grad(fun)(x))
     mat = npr.randn(7)**2 + 0.1  # Gradient unstable when zeros are present.
     print mat
     check_grads(fun, mat)
