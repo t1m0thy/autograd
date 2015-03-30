@@ -183,6 +183,35 @@ def test_mean_3():
     check_grads(fun, mat)
     check_grads(d_fun, mat)
 
+def test_prod_1():
+    def fun(x): return to_scalar(np.prod(x))
+    d_fun = lambda x : to_scalar(grad(fun)(x))
+    mat = npr.randn(2, 3)**2 + 0.1  # Gradient unstable when zeros are present.
+    check_grads(fun, mat)
+    check_grads(d_fun, mat)
+
+def test_prod_2():
+    def fun(x): return to_scalar(np.prod(x, axis=0))
+    d_fun = lambda x : to_scalar(grad(fun)(x))
+    mat = npr.randn(2, 3)**2 + 0.1
+    check_grads(fun, mat)
+    check_grads(d_fun, mat)
+
+def test_prod_3():
+    def fun(x): return to_scalar(np.prod(x, axis=0, keepdims=True))
+    d_fun = lambda x : to_scalar(grad(fun)(x))
+    mat = npr.randn(2, 3)**2 + 0.1
+    check_grads(fun, mat)
+    check_grads(d_fun, mat)
+
+def test_prod_4():
+    def fun(x): return np.prod(x)
+    d_fun = lambda x : grad(fun)(x)
+    mat = npr.randn(7)**2 + 0.1  # Gradient unstable when zeros are present.
+    print mat
+    check_grads(fun, mat)
+    check_grads(d_fun, mat)
+
 def test_index_ints():
     A = npr.randn(5, 6, 4)
     def fun(x): return to_scalar(x[3, 0, 1])
