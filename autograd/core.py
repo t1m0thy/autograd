@@ -1,42 +1,40 @@
 from __future__ import absolute_import
 import warnings
+import inspect
 import operator as op
 import types
 import math
 import numpy as np
 
-def grad(fun, argnum=0):
-    """
-    Returns a function which computes the gradient of `fun` with respect to
-    positional argument number `argnum`. The returned function takes the same
-    arguments as `fun`, but returns the gradient instead. The gradient has
-    the same type as the argument."""
-    def gradfun(*args,**kwargs):
-        return backward_pass(*forward_pass(fun,args,kwargs,argnum))
+def grad(fun, argnum=None, argname=None):
+    if (argnum is not None) and (argname is not None):
+        raise ValueError("Specify an argnum OR an argname (not both).")
 
-    try:
-        gradfun.__name__ = "grad_{fun}_wrt_argnum_{argnum}".format(fun=fun.__name__, argnum=argnum)
-        gradfun.__doc__ = "Gradient of function {fun} with respect to argument number {argnum}. " \
-                          "Has the same arguments as {fun} but the return value has type of" \
-                          "argument {argnum}".format(fun=fun.__name__, argnum=argnum)
-    except:
-        pass
+    def gradfun(*args,**kwargs):
+        grad_dict = backward_pass(*forward_pass(fun,args,kwargs,argnum,argname))
+        return unpack_result(fun,grad_dict,argnum,argname)
 
     return gradfun
 
-def forward_pass(fun, args, kwargs, argnum=0):
-        tape = CalculationTape()
-        arg_wrt = args[argnum]
-        start_node = new_node(safe_type(getval(arg_wrt)), [tape])
-        args = list(args)
-        args[argnum] = merge_tapes(start_node, arg_wrt)
-        end_node = fun(*args, **kwargs)
-        return start_node, end_node, tape
+def forward_pass(fun, args, kwargs, argnum=None, argname=None):
+    if argnum is not None:
+        arglist = getargspec(fun).args
+        argname = getargspec(fun).args[argnum] if len(arglist) > argnum else None
+    kwargs = getcallargs(fun,*args,**kwargs)
+    args_to_replace = kwargs.keys() if argname is None else {argname}
 
-def backward_pass(start_node, end_node, tape):
+    tape = CalculationTape()
+    start_nodes, new_kwargs = replace_args_with_nodes(kwargs, args_to_replace, tape)
+    argidx = lambda (argname, argval): getargspec(fun).args.index(argname)
+    new_args = [v for _, v in sorted(new_kwargs.items(),key=argidx)]
+    end_node = fun(*new_args)
+    return tape, start_nodes, end_node
+
+def backward_pass(tape, start_nodes, end_node):
     if not isinstance(end_node, Node) or tape not in end_node.tapes:
         warnings.warn("Output seems independent of input. Returning zero gradient.")
-        return zeros_like(start_node)
+        return {argname:zeros_like(start_node)
+                for argname, start_node in start_nodes.iteritems()}
     if not type(end_node) is FloatNode:
         try:
             end_node = FloatNode.cast(end_node)
@@ -44,10 +42,15 @@ def backward_pass(start_node, end_node, tape):
             raise TypeError("Output type {0} can't be cast to float. ".format(type(end_node.value))
                             + "Function grad requires a scalar-valued function. "
                               "Try jacobian or elementwise_grad.")
+
+    start_names = {start_node.tapes[tape]:argname
+                   for argname, start_node in start_nodes.iteritems()}
     end_node.tapes[tape].outgrads = [1.0]
     tape.complete = True
-    while tape:
-        node = tape.pop()
+    op_list = list(tape)
+    grad_dict = {}
+    while op_list:
+        node = op_list.pop()
         if node.outgrads:
             cur_outgrad = node.sum_outgrads()
             assert type(new_node(getval(cur_outgrad))) == node.node_type, \
@@ -55,7 +58,34 @@ def backward_pass(start_node, end_node, tape):
             for gradfun, parent in node.parent_grad_ops:
                 og = cast_to_node_type(gradfun(cur_outgrad), parent.node_type)
                 parent.outgrads.append(og)
-    return cur_outgrad
+            if node in start_names:
+                grad_dict[start_names[node]] = cur_outgrad
+    return grad_dict
+
+def replace_args_with_nodes(arg_bindings, args_to_replace, tape):
+    def makenode(argval):
+        return new_node(safe_type(getval(argval)), [tape])
+    start_nodes = {k:makenode(arg_bindings[k]) for k in args_to_replace}
+    new_args = {k:merge_tapes(start_nodes[k], v) if k in args_to_replace else v
+                for k, v in arg_bindings.iteritems()}
+    return start_nodes, new_args
+
+def unpack_result(fun, grad_dict, argnum, argname):
+    if argnum is not None:
+        argname = getargspec(fun).args[argnum]
+    if argname is not None:
+        return grad_dict[argname]
+    return grad_dict
+
+def getargspec(fun):
+    if isinstance(fun,primitive):
+        fun = fun.fun
+    return inspect.getargspec(fun)
+
+def getcallargs(fun,*args,**kwargs):
+    if isinstance(fun,primitive):
+        fun = fun.fun
+    return inspect.getcallargs(fun,*args,**kwargs)
 
 def cast_to_node_type(x, node_type):
     if type(new_node(getval(x))) is not node_type:
