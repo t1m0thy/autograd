@@ -6,7 +6,7 @@ import types
 import math
 import numpy as np
 
-def grad(fun, argnum=None, argname=None):
+def grad(fun, argnum=0, argname=None):
     if (argnum is not None) and (argname is not None):
         raise ValueError("Specify an argnum OR an argname (not both).")
 
